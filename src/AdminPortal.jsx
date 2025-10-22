@@ -20,8 +20,7 @@ const AdminPortal = ({ user, onLogout }) => {
   const [attendanceRecords, setAttendanceRecords] = useState([]);
 
   const tabTitles = {
-    dashboard: 'Dashboard_----',
-    students: 'Student Records',
+    dashboard: 'Dashboard',
     courses: 'Course Management',
     attendance: 'Attendance Records',
 
