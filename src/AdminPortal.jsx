@@ -20,13 +20,12 @@ const AdminPortal = ({ user, onLogout }) => {
   const [attendanceRecords, setAttendanceRecords] = useState([]);
 
   const tabTitles = {
-    dashboard: 'Dashboarddddddd ',
+    dashboard: 'Dashboard ',
     students: 'Student Records',
     courses: 'Course Management',
     attendance: 'Attendance Records',
 
   };
-
   const currentTitle = tabTitles[activeTab];
 
   const renderContent = () => {
