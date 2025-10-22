@@ -17,7 +17,7 @@ const AttendanceView = () => {
         return saved ? parseInt(saved, 10) : 10;
     });
 
-    const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const daysOfWeek = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
     const fetchCourses = async () => {
         const res = await fetch(`http://localhost/abbey_app/Abbey_backend/courses.php?action=view`);
