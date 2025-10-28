@@ -8,7 +8,7 @@ const AttendanceView = () => {
     const [courses, setCourses] = useState([]);
 
     const [filters, setFilters] = useState({
-        studentId: '',
+        studentIdd: '',
         studentName: '',
         courseId: '',
         date: '',
