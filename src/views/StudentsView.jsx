@@ -1,192 +1,188 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import AddStudentModal from './AddStudentModal';
 import EditStudentModal from './EditStudentModal';
-import { PlusCircle, Pencil, Trash2, Download, ChevronLeft, ChevronRight } from 'lucide-react';
+import { PlusCircle, Pencil, Trash2, Download, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { debounce } from 'lodash'; // optional, for debouncing search
+
+// --- API helper functions ---
+const api = {
+    fetchStudents: async (filters = {}) => {
+        const { student_id, student_name, course_id } = filters;
+        let url = '/api/students.php?action=list';
+        if (student_id || student_name || course_id) {
+            const params = new URLSearchParams({ action: 'search' });
+            if (student_id) params.append('student_id', student_id);
+            if (student_name) params.append('student_name', student_name);
+            if (course_id) params.append('course_id', course_id);
+            url = `/api/students.php?${params.toString()}`;
+        }
+        const res = await fetch(url);
+        return res.json();
+    },
+    fetchCourses: async () => {
+        const res = await fetch('/api/students.php?action=courses');
+        return res.json();
+    },
+    addStudent: async (student) => {
+        const res = await fetch('/api/students.php?action=add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(student),
+        });
+        return res.json();
+    },
+    updateStudent: async (student) => {
+        const res = await fetch('/api/students.php?action=update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(student),
+        });
+        return res.json();
+    },
+    deleteStudent: async (student_id) => {
+        const res = await fetch('/api/students.php?action=delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ student_id }),
+        });
+        return res.json();
+    },
+};
+
+// --- Utility function for CSV download ---
+const downloadCSV = (students) => {
+    if (!students.length) return alert('No student data to download.');
+    const headers = ['S.No', 'Student ID', 'Name', 'Course'];
+    const rows = students.map((s, i) => [
+        i + 1,
+        s.student_id,
+        `"${s.student_name}"`,
+        `"${s.course_name}"`,
+    ]);
+    const csvContent = [headers, ...rows].map(r => r.join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute('download', 'students.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+};
 
 const StudentsView = () => {
+    // --- State ---
     const [students, setStudents] = useState([]);
     const [courses, setCourses] = useState([]);
-    const [searchId, setSearchId] = useState('');
-    const [searchName, setSearchName] = useState('');
-    const [searchCourse, setSearchCourse] = useState('');
-    const [showAddModal, setShowAddModal] = useState(false);
-    const [showEditModal, setShowEditModal] = useState(false);
-    const [studentToEdit, setStudentToEdit] = useState(null);
+    const [filters, setFilters] = useState({ student_id: '', student_name: '', course_id: '' });
     const [tableMessage, setTableMessage] = useState('');
-
     const [currentPage, setCurrentPage] = useState(1);
     const [recordsPerPage, setRecordsPerPage] = useState(() => {
         const saved = localStorage.getItem('students_recordsPerPage');
         return saved ? parseInt(saved, 10) : 10;
     });
+    const [modal, setModal] = useState({ add: false, edit: false, student: null });
 
-    // Fetch students, optionally with filters
-    const fetchStudents = async (filters = {}) => {
+    // --- Fetch data ---
+    const loadStudents = useCallback(async () => {
         try {
-            let url = 'http://localhost/abbey_app/Abbey_backend/students.php?action=list';
-
-            const { student_id, student_name, course_id } = filters;
-            if (student_id || student_name || course_id) {
-                const params = new URLSearchParams();
-                params.append('action', 'search');
-                if (student_id) params.append('student_id', student_id);
-                if (student_name) params.append('student_name', student_name);
-                if (course_id) params.append('course_id', course_id);
-                url = `http://localhost/abbey_app/Abbey_backend/students.php?${params.toString()}`;
-            }
-
-            const res = await fetch(url);
-            const data = await res.json();
+            const data = await api.fetchStudents(filters);
             setStudents(data);
         } catch (err) {
-            console.error('Failed to fetch students', err);
+            console.error(err);
+            setTableMessage('❌ Failed to fetch students.');
         }
-    };
+    }, [filters]);
 
-    const fetchCourses = async () => {
+    const loadCourses = useCallback(async () => {
         try {
-            const res = await fetch('http://localhost/abbey_app/Abbey_backend/students.php?action=courses');
-            const data = await res.json();
+            const data = await api.fetchCourses();
             setCourses(data);
         } catch (err) {
-            console.error('Failed to fetch courses', err);
+            console.error(err);
+            setTableMessage('❌ Failed to fetch courses.');
         }
-    };
-
-    useEffect(() => {
-        fetchStudents();
-        fetchCourses();
     }, []);
 
-    const handleSearch = () => {
+    useEffect(() => {
+        loadStudents();
+        loadCourses();
+    }, [loadStudents, loadCourses]);
+
+    // --- Debounced search ---
+    const debouncedSearch = useCallback(debounce(loadStudents, 500), [loadStudents]);
+
+    const handleFilterChange = (field, value) => {
+        setFilters(prev => ({ ...prev, [field]: value }));
         setCurrentPage(1);
-        fetchStudents({
-            student_id: searchId,
-            student_name: searchName,
-            course_id: searchCourse,
-        });
+        debouncedSearch();
     };
 
-    const handleResetSearch = () => {
-        setSearchId('');
-        setSearchName('');
-        setSearchCourse('');
+    const handleResetFilters = () => {
+        setFilters({ student_id: '', student_name: '', course_id: '' });
         setCurrentPage(1);
-        fetchStudents();
+        loadStudents();
     };
 
+    // --- CRUD handlers ---
     const handleAddStudent = async (student) => {
         try {
-            const res = await fetch(
-                'http://localhost/abbey_app/Abbey_backend/students.php?action=add',
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(student),
-                }
-            );
-            const data = await res.json();
-            if (data.status === 'success') {
-                fetchStudents();
+            const res = await api.addStudent(student);
+            if (res.status === 'success') {
+                setModal({ ...modal, add: false });
                 setTableMessage('✅ Student added successfully!');
-                setShowAddModal(false);
+                loadStudents();
             } else {
-                setTableMessage(`❌ Error: ${data.message}`);
+                setTableMessage(`❌ ${res.message}`);
             }
         } catch (err) {
             console.error(err);
-            setTableMessage('❌ Failed to add student. Please try again.');
+            setTableMessage('❌ Failed to add student.');
+        }
+        setTimeout(() => setTableMessage(''), 3000);
+    };
+
+    const handleEditStudent = (student) => setModal({ edit: true, student });
+
+    const handleUpdateStudent = async (student) => {
+        try {
+            const res = await api.updateStudent(student);
+            if (res.status === 'success') {
+                setModal({ edit: false, student: null });
+                setTableMessage('✏️ Student updated successfully!');
+                loadStudents();
+            } else {
+                setTableMessage(`❌ ${res.message}`);
+            }
+        } catch (err) {
+            console.error(err);
+            setTableMessage('❌ Failed to update student.');
         }
         setTimeout(() => setTableMessage(''), 3000);
     };
 
     const handleDeleteStudent = async (student_id) => {
-        const confirmDelete = window.confirm('Are you sure you want to delete this student?');
-        if (!confirmDelete) return;
-
+        if (!window.confirm('Are you sure you want to delete this student?')) return;
         try {
-            const res = await fetch(
-                'http://localhost/abbey_app/Abbey_backend/students.php?action=delete',
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ student_id }),
-                }
-            );
-            const data = await res.json();
-            if (data.status === 'success') {
-                fetchStudents();
+            const res = await api.deleteStudent(student_id);
+            if (res.status === 'success') {
                 setTableMessage('🗑️ Student deleted successfully!');
+                loadStudents();
             } else {
-                setTableMessage(`❌ Failed to delete student: ${data.message}`);
+                setTableMessage(`❌ ${res.message}`);
             }
         } catch (err) {
-            console.error('Delete error:', err);
-            setTableMessage('❌ Failed to delete student. Please try again.');
+            console.error(err);
+            setTableMessage('❌ Failed to delete student.');
         }
         setTimeout(() => setTableMessage(''), 3000);
     };
 
-    const handleEditStudent = (student) => {
-        setStudentToEdit(student);
-        setShowEditModal(true);
-    };
-
-    const handleUpdateStudent = async (updatedStudent) => {
-        try {
-            const res = await fetch(
-                'http://localhost/abbey_app/Abbey_backend/students.php?action=update',
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(updatedStudent),
-                }
-            );
-            const data = await res.json();
-            if (data.status === 'success') {
-                fetchStudents();
-                setTableMessage('✏️ Student updated successfully!');
-                setShowEditModal(false);
-            } else {
-                setTableMessage(`❌ Update failed: ${data.message}`);
-            }
-        } catch (err) {
-            console.error('Update error:', err);
-            setTableMessage('❌ Failed to update student. Try again.');
-        }
-        setTimeout(() => setTableMessage(''), 3000);
-    };
-
-    const downloadCSV = () => {
-        if (!students.length) {
-            alert('No student data to download.');
-            return;
-        }
-        const headers = ['S.No', 'Student ID', 'Name', 'Course'];
-        const rows = students.map((s, i) => [
-            i + 1,
-            s.student_id,
-            `"${s.student_name}"`,
-            `"${s.course_name}"`,
-        ]);
-        const csvContent = [headers, ...rows].map((r) => r.join(',')).join('\n');
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.setAttribute('download', 'students.csv');
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    };
-
-    // Pagination calculations
-    const filtered = students; // no extra filtering in this code; if you had extra filters, apply them
-    const totalRecords = filtered.length;
+    // --- Pagination ---
+    const totalRecords = students.length;
     const totalPages = Math.ceil(totalRecords / recordsPerPage);
     const idxLast = currentPage * recordsPerPage;
     const idxFirst = idxLast - recordsPerPage;
-    const currentRecords = filtered.slice(idxFirst, idxLast);
+    const currentRecords = students.slice(idxFirst, idxLast);
 
     const handlePageChange = (page) => {
         if (page < 1 || page > totalPages) return;
@@ -203,109 +199,96 @@ const StudentsView = () => {
     const showFrom = idxFirst + 1;
     const showTo = Math.min(idxLast, totalRecords);
 
+    // --- Render ---
     return (
         <div className="p-8 text-slate-100">
-            <div className="flex justify-end mb-6">
+            {/* Actions */}
+            <div className="flex justify-end mb-6 space-x-4">
                 <button
-                    onClick={() => setShowAddModal(true)}
+                    onClick={() => setModal({ ...modal, add: true })}
                     className="flex items-center px-4 py-2 bg-emerald-500 rounded-lg hover:bg-emerald-600"
                 >
-                    <PlusCircle size={20} />
-                    <span className="ml-2">Add Student</span>
+                    <PlusCircle size={20} /><span className="ml-2">Add Student</span>
                 </button>
                 <button
-                    onClick={downloadCSV}
-                    className="flex items-center px-4 py-2 bg-blue-500 rounded-lg hover:bg-green-600 ml-4"
+                    onClick={() => downloadCSV(students)}
+                    className="flex items-center px-4 py-2 bg-blue-500 rounded-lg hover:bg-blue-600"
                 >
-                    <Download size={20} />
-                    <span className="ml-2">Download CSV</span>
+                    <Download size={20} /><span className="ml-2">Download CSV</span>
                 </button>
             </div>
 
-            {/* Search / Filters */}
+            {/* Filters */}
             <div className="bg-slate-800 p-4 rounded-lg mb-6 grid grid-cols-1 md:grid-cols-4 gap-4">
                 <input
-                    value={searchId}
-                    onChange={(e) => setSearchId(e.target.value)}
+                    value={filters.student_id}
+                    onChange={e => handleFilterChange('student_id', e.target.value)}
                     placeholder="Search by Student ID"
                     className="p-2 rounded bg-slate-900"
                 />
                 <input
-                    value={searchName}
-                    onChange={(e) => setSearchName(e.target.value)}
+                    value={filters.student_name}
+                    onChange={e => handleFilterChange('student_name', e.target.value)}
                     placeholder="Search by Name"
                     className="p-2 rounded bg-slate-900"
                 />
                 <select
-                    value={searchCourse}
-                    onChange={(e) => setSearchCourse(e.target.value)}
+                    value={filters.course_id}
+                    onChange={e => handleFilterChange('course_id', e.target.value)}
                     className="p-2 rounded bg-slate-900"
                 >
                     <option value="">All Courses</option>
-                    {courses.map((c) => (
-                        <option key={c.course_id} value={c.course_id}>
-                            {c.course_name}
-                        </option>
-                    ))}
+                    {courses.map(c => <option key={c.course_id} value={c.course_id}>{c.course_name}</option>)}
                 </select>
                 <div className="flex space-x-2">
-                    <button
-                        onClick={handleSearch}
-                        className="flex-1 bg-emerald-500 rounded px-4 py-2 hover:bg-emerald-600"
-                    >
-                        Search
-                    </button>
-                    <button
-                        onClick={handleResetSearch}
-                        className="flex-1 bg-gray-600 rounded px-4 py-2 hover:bg-gray-500"
-                    >
-                        Reset
-                    </button>
+                    <button onClick={loadStudents} className="flex-1 bg-emerald-500 rounded px-4 py-2 hover:bg-emerald-600">Search</button>
+                    <button onClick={handleResetFilters} className="flex-1 bg-gray-600 rounded px-4 py-2 hover:bg-gray-500">Reset</button>
                 </div>
             </div>
 
-            {/* Rows-per-page selector & summary */}
+            {/* Summary & Pagination */}
             <div className="flex justify-between items-center mb-4">
                 <div className="text-sm text-gray-400">
-                    Showing {showFrom}–{showTo} of {totalRecords} records
-                </div>
-                <div>
-                    {/* Pagination Controls */}
-                    {totalPages > 1 && (
-                        <div className="flex flex-wrap justify-end items-center mt-6 gap-4 py-3">
-                            {/* First */}
-
-                            {/* Prev */}
-                            <button
-                                onClick={() => handlePageChange(currentPage - 1)}
-                                disabled={currentPage === 1}
-                                className={`px-2 py-1 rounded ${currentPage === 1
-                                    ? 'bg-slate-800 text-gray-500 cursor-not-allowed'
-                                    : 'bg-slate-700 text-gray-300 hover:bg-slate-600'
-                                    }`}
-                            >
-                                <ChevronLeft size={18} />
-                            </button>
-                            {/* Current Page */}
-                            <span className="px-4 py-1 rounded bg-blue-600 text-white font-semibold">
-                                Page {currentPage}
-                            </span>
-                            {/* Next */}
-                            <button
-                                onClick={() => handlePageChange(currentPage + 1)}
-                                disabled={currentPage === totalPages}
-                                className={`px-2 py-1 rounded ${currentPage === totalPages
-                                    ? 'bg-slate-800 text-gray-500 cursor-not-allowed'
-                                    : 'bg-slate-700 text-gray-300 hover:bg-slate-600'
-                                    }`}
-                            >
-                                <ChevronRight size={18} />
-                            </button>
-
-                        </div>
-                    )}
+                    Showing {showFrom}-{showTo} of {totalRecords} records
                 </div>
 
+
+                {/* Pagination */}
+                {totalPages > 1 && (
+                    <div className="flex items-center gap-2 mt-4">
+                        <button
+                            onClick={() => handlePageChange(1)}
+                            disabled={currentPage === 1}
+                            className="px-2 py-1 rounded bg-slate-700 text-gray-300 hover:bg-slate-600 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-gray-500"
+                        >
+                            <ChevronsLeft size={16} />
+                        </button>
+                        <button
+                            onClick={() => handlePageChange(currentPage - 1)}
+                            disabled={currentPage === 1}
+                            className="px-2 py-1 rounded bg-slate-700 text-gray-300 hover:bg-slate-600 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-gray-500"
+                        >
+                            <ChevronLeft size={16} />
+                        </button>
+                        <span className="px-4 py-1 rounded bg-blue-600 text-white font-semibold">
+                            Page {currentPage} of {totalPages}
+                        </span>
+                        <button
+                            onClick={() => handlePageChange(currentPage + 1)}
+                            disabled={currentPage === totalPages}
+                            className="px-2 py-1 rounded bg-slate-700 text-gray-300 hover:bg-slate-600 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-gray-500"
+                        >
+                            <ChevronRight size={16} />
+                        </button>
+                        <button
+                            onClick={() => handlePageChange(totalPages)}
+                            disabled={currentPage === totalPages}
+                            className="px-2 py-1 rounded bg-slate-700 text-gray-300 hover:bg-slate-600 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-gray-500"
+                        >
+                            <ChevronsRight size={16} />
+                        </button>
+                    </div>
+                )}
                 <div className="flex items-center gap-2">
                     <label htmlFor="rpp" className="text-sm text-gray-300">Rows per page:</label>
                     <select
@@ -314,10 +297,7 @@ const StudentsView = () => {
                         onChange={handleRecordsPerPageChange}
                         className="px-2 py-1 rounded bg-slate-900 border border-slate-700 text-gray-300"
                     >
-                        <option value={10}>10</option>
-                        <option value={20}>20</option>
-                        <option value={50}>50</option>
-                        <option value={100}>100</option>
+                        {[10, 20, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
                     </select>
                 </div>
             </div>
@@ -337,63 +317,34 @@ const StudentsView = () => {
                     <tbody>
                         {tableMessage && (
                             <tr>
-                                <td colSpan="5" className="text-center py-3 bg-slate-700 text-emerald-400 font-semibold">
-                                    {tableMessage}
+                                <td colSpan="5" className="text-center py-3 bg-slate-700 text-emerald-400">{tableMessage}</td>
+                            </tr>
+                        )}
+                        {currentRecords.length === 0 && !tableMessage && (
+                            <tr>
+                                <td colSpan="5" className="text-center py-3">No records found.</td>
+                            </tr>
+                        )}
+                        {currentRecords.map((s, idx) => (
+                            <tr key={s.student_id || idx} className="border-t border-slate-700 hover:bg-slate-700 transition-colors">
+                                < td className="px-4 py-2" > {idxFirst + idx + 1}</td>
+                                <td className="px-4 py-2">{s.student_id}</td>
+                                <td className="px-4 py-2">{s.student_name}</td>
+                                <td className="px-4 py-2">{s.course_name}</td>
+                                <td className="px-4 py-2 flex gap-2">
+                                    <button onClick={() => handleEditStudent(s)} className="p-1 bg-blue-500 rounded hover:bg-blue-600"><Pencil size={16} /></button>
+                                    <button onClick={() => handleDeleteStudent(s.student_id)} className="p-1 bg-red-500 rounded hover:bg-red-600"><Trash2 size={16} /></button>
                                 </td>
                             </tr>
-                        )}
-                        {currentRecords.length > 0 ? (
-                            currentRecords.map((s, idx) => (
-                                <tr
-                                    key={s.student_id ?? idx}
-                                    className="border-t border-slate-700 hover:bg-slate-700 transition-colors"
-                                >
-                                    <td className="px-4 py-2">{idxFirst + idx + 1}</td>
-                                    <td className="px-4 py-2">{s.student_id}</td>
-                                    <td className="px-4 py-2">{s.student_name}</td>
-                                    <td className="px-4 py-2">{s.course_name}</td>
-                                    <td className="px-4 py-2 text-right space-x-2">
-                                        <button
-                                            onClick={() => handleEditStudent(s)}
-                                            className="inline-flex items-center px-3 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white"
-                                        >
-                                            <Pencil size={18} />
-                                        </button>
-                                        <button
-                                            onClick={() => handleDeleteStudent(s.student_id)}
-                                            className="inline-flex items-center px-3 py-1 rounded bg-red-600 hover:bg-red-700 text-white"
-                                        >
-                                            <Trash2 size={18} />
-                                        </button>
-                                    </td>
-                                </tr>
-                            ))
-                        ) : (
-                            <tr>
-                                <td colSpan="5" className="text-center py-4">No records found.</td>
-                            </tr>
-                        )}
+                        ))}
                     </tbody>
                 </table>
-            </div>
+            </div >
 
-
-
-            {showAddModal && (
-                <AddStudentModal
-                    onClose={() => setShowAddModal(false)}
-                    onAddStudent={handleAddStudent}
-                />
-            )}
-            {showEditModal && (
-                <EditStudentModal
-                    onClose={() => setShowEditModal(false)}
-                    onUpdateStudent={handleUpdateStudent}
-                    student={studentToEdit}
-                    courses={courses}
-                />
-            )}
-        </div>
+            {/* Modals */}
+            {modal.add && <AddStudentModal onAddStudent={handleAddStudent} onClose={() => setModal({ ...modal, add: false })} courses={courses} />}
+            {modal.edit && <EditStudentModal student={modal.student} onUpdateStudent={handleUpdateStudent} onClose={() => setModal({ edit: false, student: null })} courses={courses} />}
+        </div >
     );
 };
 

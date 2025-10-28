@@ -11,7 +11,7 @@ const AddStudentModal = ({ onClose, onAddStudent }) => {
     useEffect(() => {
         const fetchCourses = async () => {
             try {
-                const res = await fetch('http://localhost/abbey_app/Abbey_backend/students.php?action=courses');
+                const res = await fetch('/api/students.php?action=courses');
                 const data = await res.json();
                 setCourses(data);
             } catch (err) {

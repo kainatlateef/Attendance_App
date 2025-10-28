@@ -24,7 +24,7 @@ const StudentPortal = () => {
 
     const allowedLat = -34.925711;
     const allowedLng = 138.600064;
-    const maxDistanceMeters = 1000;
+    const maxDistanceMeters = 25;
 
     const getDistanceFromLatLonInMeters = (lat1, lon1, lat2, lon2) => {
         const R = 6371e3;
@@ -120,7 +120,7 @@ const StudentPortal = () => {
         setMessage("");
 
         try {
-            const res = await fetch(`http://localhost/abbey_app/Abbey_backend/student_portal.php?action=validate&student_id=${encodeURIComponent(studentId)}`);
+            const res = await fetch(`/api/student_portal.php?action=validate&student_id=${encodeURIComponent(studentId)}`);
             const data = await res.json();
 
             if (data.status === "success" && data.student) {
@@ -165,7 +165,7 @@ const StudentPortal = () => {
                 }
 
                 try {
-                    const res = await fetch("http://localhost/abbey_app/Abbey_backend/student_portal.php?action=add", {
+                    const res = await fetch("/api/student_portal.php?action=add", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({

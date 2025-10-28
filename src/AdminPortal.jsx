@@ -18,7 +18,7 @@ const AdminPortal = ({ user, onLogout }) => {
   const [courses, setCourses] = useState([]);
   const [students, setStudents] = useState([]);
   const [attendanceRecords, setAttendanceRecords] = useState([]);
-
+  const apiBase = import.meta.env.VITE_API_BASE_URL;
   const tabTitles = {
     dashboard: 'Dashboard',
     students: 'Student Records',

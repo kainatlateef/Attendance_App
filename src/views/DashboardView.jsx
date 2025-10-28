@@ -12,7 +12,7 @@ const DashboardView = () => {
 
     const fetchDashboard = async () => {
         try {
-            const res = await fetch('http://localhost/abbey_app/Abbey_backend/dashboard.php?action=totals');
+            const res = await fetch('/api/dashboard.php?action=totals');
             const json = await res.json();
             if (json.status === 'success') {
                 setTotals(json.data);

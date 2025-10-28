@@ -14,7 +14,7 @@ const LoginView = ({ onSwitchToRegister, onLoginSuccess }) => {
         setLoading(true);
 
         try {
-            const response = await fetch("http://localhost/abbey_app/Abbey_backend/login.php", {
+            const response = await fetch("/api/login.php", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ email, password }),

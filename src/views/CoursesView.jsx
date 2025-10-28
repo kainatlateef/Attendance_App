@@ -1,38 +1,31 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { PlusCircle, Pencil, Trash2, Download } from 'lucide-react';
-import AddCourseModal from './AddCourseModal';         // ✅ Make sure this exists
-import EditCourseModal from './EditCourseModal';       // ✅ Make sure this exists
+import { debounce } from 'lodash';
+import AddCourseModal from './AddCourseModal';
+import EditCourseModal from './EditCourseModal';
 
 const CoursesView = () => {
+    // 🔹 State Management
     const [courses, setCourses] = useState([]);
-    const [searchName, setSearchName] = useState('');
-    const [searchCricos, setSearchCricos] = useState('');
+    const [search, setSearch] = useState({ name: '', cricos: '' });
+    const [message, setMessage] = useState('');
     const [showAddModal, setShowAddModal] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
-    const [courseToEdit, setCourseToEdit] = useState(null);
-    const [tableMessage, setTableMessage] = useState('');
     const [showDeleteModal, setShowDeleteModal] = useState(false);
-    const [courseToDelete, setCourseToDelete] = useState(null);
+    const [selectedCourse, setSelectedCourse] = useState(null);
 
+    // 🔹 API: Fetch Courses
     const fetchCourses = async (filters = {}) => {
         try {
-            let url = 'http://localhost/abbey_app/Abbey_backend/courses.php?action=view';
-            const params = new URLSearchParams();
-
-            if (filters.course_name) params.append('course_name', filters.course_name);
-            if (filters.course_cricos) params.append('course_cricos', filters.course_cricos);
-
-            if ([...params].length > 0) {
-                url += '&' + params.toString();
-            }
-
-            const res = await fetch(url);
+            const params = new URLSearchParams(filters).toString();
+            const res = await fetch(`/api/courses.php?action=view${params ? `&${params}` : ''}`);
             const data = await res.json();
+
+            if (!Array.isArray(data)) throw new Error('Invalid data');
             setCourses(data);
         } catch (err) {
-            console.error('Failed to fetch courses', err);
-            setTableMessage('❌ Failed to load courses.');
-            setTimeout(() => setTableMessage(''), 3000);
+            console.error('❌ Fetch Error:', err);
+            showTempMessage('❌ Failed to load courses.');
         }
     };
 
@@ -40,81 +33,57 @@ const CoursesView = () => {
         fetchCourses();
     }, []);
 
-    const handleSearch = () => {
-        fetchCourses({
-            course_name: searchName,
-            course_cricos: searchCricos,
+    // 🔹 Utility: Show message for 4 seconds
+    const showTempMessage = (msg) => {
+        setMessage(msg);
+        setTimeout(() => setMessage(''), 4000);
+    };
+
+    // 🔹 Debounced Search
+    const debouncedSearch = useCallback(
+        debounce((filters) => fetchCourses(filters), 500),
+        []
+    );
+
+    const handleSearchChange = (field, value) => {
+        const newSearch = { ...search, [field]: value };
+        setSearch(newSearch);
+        debouncedSearch({
+            course_name: newSearch.name,
+            course_cricos: newSearch.cricos,
         });
     };
 
     const handleResetSearch = () => {
-        setSearchName('');
-        setSearchCricos('');
+        setSearch({ name: '', cricos: '' });
         fetchCourses();
     };
 
+    // 🔹 Add Course
     const handleAddCourse = async (course) => {
         try {
-            const res = await fetch('http://localhost/abbey_app/Abbey_backend/courses.php?action=add', {
+            const res = await fetch('/api/courses.php?action=add', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(course),
             });
             const data = await res.json();
-
             if (data.status === 'success') {
                 fetchCourses();
-                setTableMessage('✅ Course added successfully!');
                 setShowAddModal(false);
+                showTempMessage('✅ Course added successfully!');
             } else {
-                setTableMessage(`❌ Error: ${data.message}`);
+                showTempMessage(`❌ ${data.message}`);
             }
-        } catch (err) {
-            console.error(err);
-            setTableMessage('❌ Failed to add course. Please try again.');
-        } finally {
-            setTimeout(() => setTableMessage(''), 4000);
+        } catch {
+            showTempMessage('❌ Failed to add course.');
         }
     };
 
-    const handleEditClick = (course) => {
-        setCourseToEdit(course);
-        setShowEditModal(true);
-    };
-    const handleDeleteClick = (course_id) => {
-        setCourseToDelete(course_id);
-        setShowDeleteModal(true);
-    };
-    const handleConfirmDelete = async () => {
-        try {
-            const res = await fetch('http://localhost/abbey_app/Abbey_backend/courses.php?action=delete', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ course_id: courseToDelete }),
-            });
-
-            const data = await res.json();
-
-            if (data.status === 'success') {
-                fetchCourses(); // reload course list
-                setTableMessage('🗑️ Course deleted successfully!');
-            } else {
-                setTableMessage(`❌ Error: ${data.message}`);
-            }
-        } catch (err) {
-            console.error('Delete error:', err);
-            setTableMessage('❌ Failed to delete course. Please try again.');
-        } finally {
-            setTimeout(() => setTableMessage(''), 4000);
-            setShowDeleteModal(false);
-            setCourseToDelete(null);
-        }
-    };
-
-
+    // 🔹 Update Course
     const handleUpdateCourse = async (updatedCourse) => {
         try {
-            const res = await fetch('http://localhost/abbey_app/Abbey_backend/courses.php?action=update', {
+            const res = await fetch('/api/courses.php?action=update', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(updatedCourse),
@@ -123,136 +92,94 @@ const CoursesView = () => {
 
             if (data.status === 'success') {
                 fetchCourses();
-                setTableMessage('✅ Course updated successfully!');
                 setShowEditModal(false);
-                setCourseToEdit(null);
+                setSelectedCourse(null);
+                showTempMessage('✅ Course updated successfully!');
             } else {
-                setTableMessage(`❌ Error: ${data.message}`);
+                showTempMessage(`❌ ${data.message}`);
             }
-        } catch (err) {
-            console.error(err);
-            setTableMessage('❌ Failed to update course. Please try again.');
-        } finally {
-            setTimeout(() => setTableMessage(''), 4000);
+        } catch {
+            showTempMessage('❌ Failed to update course.');
         }
     };
 
-    const handleDeleteCourse = async (course_id) => {
-        const confirmDelete = window.confirm('If you delete this course all students in this course will be deleted permanently, to avoid student deletion first Edit the  the student course.');
-        if (!confirmDelete) return;
-
+    // 🔹 Delete Course (with modal)
+    const handleDeleteCourse = async () => {
+        if (!selectedCourse) return;
         try {
-            const res = await fetch('http://localhost/abbey_app/Abbey_backend/courses.php?action=delete', {
+            const res = await fetch('/api/courses.php?action=delete', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ course_id }),
+                body: JSON.stringify({ course_id: selectedCourse.course_id }),
             });
             const data = await res.json();
 
             if (data.status === 'success') {
                 fetchCourses();
-                setTableMessage('🗑️ Course deleted successfully!');
+                showTempMessage('🗑️ Course deleted successfully!');
             } else {
-                setTableMessage(`❌ Error: ${data.message}`);
+                showTempMessage(`❌ ${data.message}`);
             }
-        } catch (err) {
-            console.error('Delete error:', err);
-            setTableMessage('❌ Failed to delete course. Please try again.');
+        } catch {
+            showTempMessage('❌ Failed to delete course.');
         } finally {
-            setTimeout(() => setTableMessage(''), 4000);
+            setShowDeleteModal(false);
+            setSelectedCourse(null);
         }
     };
 
-    const downloadCSV = () => {
-        if (!courses.length) {
-            alert("No courses available to download.");
-            return;
-        }
+    // 🔹 Download CSV
+    const handleDownloadCSV = () => {
+        if (!courses.length) return alert('No courses available to download.');
 
-        // Define CSV headers
-        const headers = ["Course ID", "CRICOS Code", "Course Name"];
+        const headers = ['Course ID', 'CRICOS Code', 'Course Name'];
+        const rows = courses.map((c) => [c.course_id, c.course_cricos, c.course_name]);
+        const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
 
-        // Map course data to rows
-        const rows = courses.map(c => [
-            c.course_id,
-            c.course_cricos,
-            c.course_name,
-        ]);
-
-        // Combine headers and rows
-        const csvContent = [
-            headers.join(","),           // CSV Header row
-            ...rows.map(r => r.join(",")) // CSV data rows
-        ].join("\n");
-
-        // Create a Blob from CSV string
-        const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-
-        // Create a download link and click it programmatically
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.setAttribute("download", "courses.csv");
-        document.body.appendChild(link);
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = 'courses.csv';
         link.click();
-
-        // Clean up
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
     };
 
     return (
         <div className="p-8 text-slate-100">
-            <div className="flex justify-end mb-6">
-                <button
-                    onClick={() => setShowAddModal(true)}
-                    className="flex items-center px-4 py-2 bg-emerald-500 rounded-lg hover:bg-emerald-600"
-                >
-                    <PlusCircle size={20} />
-                    <span className="ml-2">Add Course</span>
+            {/* Header Buttons */}
+            <div className="flex justify-end mb-6 space-x-4">
+                <button onClick={() => setShowAddModal(true)} className="flex items-center px-4 py-2 bg-emerald-500 rounded-lg hover:bg-emerald-600">
+                    <PlusCircle size={20} /> <span className="ml-2">Add Course</span>
                 </button>
-                <button
-                    onClick={downloadCSV}
-                    className="flex items-center px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 ml-4"
-                >
-                    <Download size={20} />
-                    <span className="ml-2">Download CSV</span>
+                <button onClick={handleDownloadCSV} className="flex items-center px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700">
+                    <Download size={20} /> <span className="ml-2">Download CSV</span>
                 </button>
             </div>
 
             {/* Search Filters */}
             <div className="bg-slate-800 p-4 rounded-lg mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
                 <input
-                    value={searchName}
-                    onChange={(e) => setSearchName(e.target.value)}
+                    value={search.name}
+                    onChange={(e) => handleSearchChange('name', e.target.value)}
                     placeholder="Search by Course Name"
                     className="p-2 rounded bg-slate-900 text-white"
                 />
                 <input
-                    value={searchCricos}
-                    onChange={(e) => setSearchCricos(e.target.value)}
+                    value={search.cricos}
+                    onChange={(e) => handleSearchChange('cricos', e.target.value)}
                     placeholder="Search by CRICOS Code"
                     className="p-2 rounded bg-slate-900 text-white"
                 />
-                <div className="flex gap-2 w-full">
-                    <div className="flex-1">
-                        <button
-                            onClick={handleSearch}
-                            className="w-full bg-emerald-500 px-4 py-2 rounded hover:bg-emerald-600"
-                        >
-                            Search
-                        </button>
-                    </div>
-                    <div className="flex-1">
-                        <button
-                            onClick={handleResetSearch}
-                            className="w-full bg-gray-600 px-4 py-2 rounded hover:bg-gray-700"
-                        >
-                            Reset
-                        </button>
-                    </div>
+                <div className="flex gap-2">
+                    <button onClick={() => fetchCourses({
+                        course_name: search.name,
+                        course_cricos: search.cricos
+                    })} className="w-1/2 bg-emerald-500 px-4 py-2 rounded hover:bg-emerald-600">
+                        Search
+                    </button>
+                    <button onClick={handleResetSearch} className="w-1/2 bg-gray-600 px-4 py-2 rounded hover:bg-gray-700">
+                        Reset
+                    </button>
                 </div>
-
             </div>
 
             {/* Table */}
@@ -260,47 +187,42 @@ const CoursesView = () => {
                 <table className="w-full text-left text-sm text-slate-300">
                     <thead className="bg-slate-700 text-slate-300 uppercase text-xs font-semibold">
                         <tr>
-                            <th className="px-4 py-2">C.NO</th>
+                            <th className="px-4 py-2">#</th>
                             <th className="px-4 py-2">CRICOS Code</th>
                             <th className="px-4 py-2">Course Name</th>
                             <th className="px-4 py-2 text-center">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {/* Message Row */}
-                        {tableMessage && (
+                        {message && (
                             <tr>
-                                <td colSpan="5" className="text-center py-3 bg-slate-700 text-emerald-400 font-semibold">
-                                    {tableMessage}
+                                <td colSpan="4" className="text-center py-3 bg-slate-700 text-emerald-400 font-semibold">
+                                    {message}
                                 </td>
                             </tr>
                         )}
-
                         {courses.length === 0 ? (
                             <tr>
-                                <td colSpan="3" className="text-center py-6 text-gray-400">
+                                <td colSpan="4" className="text-center py-6 text-gray-400">
                                     No courses found.
                                 </td>
                             </tr>
                         ) : (
-                            courses.map((course, index) => (
-                                <tr
-                                    key={course.course_id}
-                                    className="border-t border-slate-700 hover:bg-slate-700 transition-colors"
-                                >
-                                    <td className="px-4 py-2">{index + 1}</td> {/* Row number */}
+                            courses.map((course, i) => (
+                                <tr key={course.course_id} className="border-t border-slate-700 hover:bg-slate-700 transition-colors">
+                                    <td className="px-4 py-2">{i + 1}</td>
                                     <td className="px-4 py-2">{course.course_cricos}</td>
                                     <td className="px-4 py-2">{course.course_name}</td>
                                     <td className="px-4 py-2 text-right space-x-2">
                                         <button
-                                            className="inline-flex items-center px-3 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white"
-                                            onClick={() => handleEditClick(course)}
+                                            onClick={() => { setSelectedCourse(course); setShowEditModal(true); }}
+                                            className="px-3 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white"
                                         >
                                             <Pencil size={18} />
                                         </button>
                                         <button
-                                            className="inline-flex items-center px-3 py-1 rounded bg-red-600 hover:bg-red-700 text-white"
-                                            onClick={() => handleDeleteClick(course.course_id)}
+                                            onClick={() => { setSelectedCourse(course); setShowDeleteModal(true); }}
+                                            className="px-3 py-1 rounded bg-red-600 hover:bg-red-700 text-white"
                                         >
                                             <Trash2 size={18} />
                                         </button>
@@ -312,63 +234,38 @@ const CoursesView = () => {
                 </table>
             </div>
 
+            {/* Modals */}
+            {showAddModal && <AddCourseModal onClose={() => setShowAddModal(false)} onAddCourse={handleAddCourse} />}
+            {showEditModal && selectedCourse && (
+                <EditCourseModal
+                    course={selectedCourse}
+                    onClose={() => setShowEditModal(false)}
+                    onUpdateCourse={handleUpdateCourse}
+                />
+            )}
 
-
-            {/* Add Modal */}
-            {
-                showAddModal && (
-                    <AddCourseModal
-                        onClose={() => setShowAddModal(false)}
-                        onAddCourse={handleAddCourse}
-                    />
-                )
-            }
-
-            {/* Edit Modal */}
-            {
-                showEditModal && courseToEdit && (
-                    <EditCourseModal
-                        course={courseToEdit}
-                        onClose={() => {
-                            setShowEditModal(false);
-                            setCourseToEdit(null);
-                        }}
-                        onUpdateCourse={handleUpdateCourse}
-                    />
-                )
-            }
+            {/* Delete Confirmation */}
             {showDeleteModal && (
                 <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center">
                     <div className="bg-white p-6 rounded shadow-lg w-full max-w-md">
                         <h2 className="text-lg font-semibold mb-4 text-gray-800">Confirm Deletion</h2>
                         <p className="text-sm text-gray-700 mb-6">
-                            If you delete this course, all students in this course will be deleted permanently.
+                            Deleting this course will also delete all students enrolled.
                             <br />
-                            <strong className="text-red-600">To avoid student deletion, first edit the course in student records.</strong>
+                            <strong className="text-red-600">Edit student courses first if needed.</strong>
                         </p>
                         <div className="flex justify-end space-x-3">
-                            <button
-                                onClick={handleConfirmDelete}
-                                className="px-4 py-2 bg-red-600 rounded hover:bg-red-700 text-white"
-                            >
+                            <button onClick={handleDeleteCourse} className="px-4 py-2 bg-red-600 rounded hover:bg-red-700 text-white">
                                 Delete Anyway
                             </button>
-                            <button
-                                onClick={() => {
-                                    setShowDeleteModal(false);
-                                    setCourseToDelete(null);
-                                }}
-                                className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400 text-gray-800"
-                            >
+                            <button onClick={() => setShowDeleteModal(false)} className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400 text-gray-800">
                                 Cancel
                             </button>
-
                         </div>
                     </div>
                 </div>
             )}
-
-        </div >
+        </div>
     );
 };
 
